@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$ROOT"
+
+exec go run . "$@"
+
+
