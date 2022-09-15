@@ -15,6 +15,7 @@ import (
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -54,7 +55,7 @@ func TestHelloWorld(t *testing.T) {
 			u, err := url.Parse(grpcServer.URL)
 			require.NoError(t, err)
 
-			conn, err := grpc.Dial(u.Host, grpc.WithInsecure())
+			conn, err := grpc.Dial(u.Host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			require.NoError(t, err)
 
 			transcoder := pb.NewGreeterTranscode(conn)
