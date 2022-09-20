@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -71,6 +72,7 @@ func TestHelloWorld(t *testing.T) {
 			require.NoError(t, err)
 
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-My-Header", "my-value")
 
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
@@ -79,8 +81,9 @@ func TestHelloWorld(t *testing.T) {
 
 			require.Equal(t, test.expectedStatus, resp.StatusCode)
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-			data, err := io.ReadAll(resp.Body)
+			require.Equal(t, "my-value", resp.Header.Get("X-My-Header"))
 
+			data, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			if test.expectedStatus == http.StatusOK {
@@ -107,8 +110,18 @@ type server struct {
 
 // SayHello implements helloworld.GreeterServer
 func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
+	if stream := grpc.ServerTransportStreamFromContext(ctx); stream != nil {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			if err := stream.SendHeader(md); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if s.err != nil {
 		return nil, s.err
 	}
+
 	return &pb.HelloReply{Message: "hello " + in.GetName()}, nil
 }

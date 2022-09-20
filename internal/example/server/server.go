@@ -27,5 +27,5 @@ func main() {
 		mux.Handle(method, transcoder)
 	}
 
-	http.ListenAndServe(":8080", mux)
+	_ = http.ListenAndServe(":8080", mux)
 }
