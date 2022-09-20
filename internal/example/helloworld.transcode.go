@@ -7,6 +7,7 @@ import (
 	context "context"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
+	metadata "google.golang.org/grpc/metadata"
 	status "google.golang.org/grpc/status"
 	protojson "google.golang.org/protobuf/encoding/protojson"
 	proto "google.golang.org/protobuf/proto"
@@ -27,19 +28,21 @@ func NewGreeterTranscode(client grpc.ClientConnInterface) *GreeterTranscode {
 	return &handler
 }
 
-func (t *GreeterTranscode) handleSayHello(ctx context.Context, input []byte) (proto.Message, error) {
+func (t *GreeterTranscode) handleSayHello(ctx context.Context, input []byte) (proto.Message, metadata.MD, error) {
 	var request HelloRequest
 	if err := protojson.Unmarshal(input, &request); err != nil {
 		grpcError := status.Errorf(codes.InvalidArgument, "failed to unmarshal request %s", err.Error())
-		return nil, grpcError
+		return nil, nil, grpcError
 	}
 
+	var headers metadata.MD
+	var trailers metadata.MD
 	var response HelloReply
-	if err := t.client.Invoke(ctx, "/helloworld.Greeter/SayHello", &request, &response); err != nil {
-		return nil, err
+	if err := t.client.Invoke(ctx, "/helloworld.Greeter/SayHello", &request, &response, grpc.Header(&headers), grpc.Trailer(&trailers)); err != nil {
+		return nil, metadata.Join(headers, trailers), err
 	}
 
-	return &response, nil
+	return &response, metadata.Join(headers, trailers), nil
 }
 
 func (t *GreeterTranscode) Methods() []string {
@@ -109,8 +112,7 @@ func (t *GreeterTranscode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	header := r.Header.Get("Content-Type")
-	if header != "application/json" {
+	if header := r.Header.Get("Content-Type"); header != "application/json" {
 		i := strings.Index(header, ";")
 		if i == -1 {
 			i = len(header)
@@ -121,7 +123,7 @@ func (t *GreeterTranscode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var handler func(context.Context, []byte) (proto.Message, error)
+	var handler func(context.Context, []byte) (proto.Message, metadata.MD, error)
 
 	switch r.URL.Path {
 	case "/helloworld.Greeter/SayHello":
@@ -139,7 +141,43 @@ func (t *GreeterTranscode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := handler(r.Context(), input)
+	headers := metadata.MD{}
+	for k, vv := range r.Header {
+		key := strings.ToLower(k)
+		switch key {
+		case "content-type",
+			"user-agent",
+			"grpc-message-type",
+			"grpc-encoding",
+			"grpc-message",
+			"grpc-status",
+			"grpc-status-details-bin",
+			"content-length",
+			"accept-encoding",
+			"connection",
+			"proxy-connection",
+			"keep-alive",
+			"proxy-authenticate",
+			"proxy-authorization",
+			"te",
+			"trailer",
+			"transfer-Encoding",
+			"upgrade",
+			":authority":
+		default:
+			headers[key] = vv
+		}
+	}
+	ctx := metadata.NewOutgoingContext(r.Context(), headers)
+
+	response, md, err := handler(ctx, input)
+
+	for k, vv := range md {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+
 	if err != nil {
 		t.sendError(w, err)
 		return
@@ -152,5 +190,6 @@ func (t *GreeterTranscode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
 	_, _ = w.Write(output)
 }
